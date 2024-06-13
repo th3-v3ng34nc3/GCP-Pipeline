@@ -29,18 +29,27 @@ steps:
     args: ['/workspace/accuknox-report.json']
     waitFor: ['accuknox-container-scan']
 
-  # Step 5: Forward the logs to the SaaS platform using curl
+  # Step 5: Access the secret using gcloud and save it to a file
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args: [ 
+      '-c', 
+      "gcloud secrets versions access latest --secret=accuknox_token --format='get(payload.data)' | tr '_-' '/+' | base64 -d > /workspace/decrypted-data.txt" 
+    ]
+    id: 'access-secret'
+
+  # Step 6: Forward the logs to the SaaS platform using curl
   - name: 'gcr.io/cloud-builders/curl'
     entrypoint: 'bash'
     args:
       [
         '-c',
-        'curl --location --request POST "https://${_CSPM_URL}/api/v1/artifact/?tenant_id=${_TENANT_ID}&data_type=TR&save_to_s3=false"  --header "Tenant-Id: 167" --header "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzIwNTg0NDgxLCJqdGkiOiJlOTMzZjBiMjRmOTE0ZDEwOGYzY2RlZGI4MGNmMGFmZCIsImlzcyI6ImNzcG0uZGVtby5hY2N1a25veC5jb20ifQ.aZW3andqtR8-mW_CgdzPDUu-Vow2whoOUjpyGxnfUVcfRfiJpkIlATlFDmPhOR3PHc6tJuxxfZBcyxiX4pXcFBMEAtFMUMK3bIA3oOftALuCxLW5W4DS6PzeOXjNZn9_ijadh8d6UJvw4JOAByXRcwu9XNSwICn-pb4BqfIvu7tL_sHRWMFKt4C5Mo97FNr48keXzOeWzy4TiqMCwTKBzwtJbBt3NrgvWoTZzpJx1ioWGnVcQRHphDL0xA6OmyZYw5qOEJ5y8yv5rDt0p5JUWD5EiemF8Pq-0_OXBZ0TU-a-4deBWMnwSqO-i2C7cxzA_d0hC1fRcVhJ7PFnALFXcA" --form "file=@/workspace/accuknox-report.json"'
+        'curl --location --request POST "https://${_CSPM_URL}/api/v1/artifact/?tenant_id=${_TENANT_ID}&data_type=TR&save_to_s3=false" --header "Tenant-Id: 167" --header "Authorization: Bearer $(cat /workspace/decrypted-data.txt)" --form "file=@/workspace/accuknox-report.json"'
       ]
-    waitFor: ['accuknox-container-scan']
+    waitFor: ['access-secret']
     id: 'forward-result-to-accuknox-saas'
 
-  # Step 6: If there are critical or high vulnerabilities, stop deployment
+  # Step 7: If there are critical vulnerabilities, stop deployment
   - name: 'bash'
     entrypoint: 'bash'
     args:
@@ -50,7 +59,7 @@ steps:
       ]
     waitFor: ['forward-result-to-accuknox-saas']
 
-  # Step 7: Push the image to Google Container Registry with the latest tag if it passes the scan criteria
+  # Step 8: Push the image to Google Container Registry with the latest tag if it passes the scan criteria
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/shaped-infusion-402417/python-app']
 
