@@ -1,0 +1,65 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/shaped-infusion-402417/python-app', '.']
+
+
+# Step 2: Scan the container image with AccuKnox and save the report
+  - name: 'accuknox/accuknox-container-scan'
+    args: [
+      'image', 
+      '--format', 'json', 
+      '--output', '/workspace/accuknox-report.json', 
+      '${_IMAGE_URL}:${_IMAGE_TAG}',
+    ]
+    id: 'accuknox-container-scan'
+
+  # Step 3: Upload the AccuKnox report to Cloud Storage
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args: ['cp', '/workspace/accuknox-report.json', 'gs://aditya-cicd-test/accuknox-report.json']
+    waitFor: ['accuknox-container-scan']
+
+  # Step 4: Print the AccuKnox container scan results
+  - name: 'ubuntu'
+    entrypoint: 'cat'
+    args: ['/workspace/accuknox-report.json']
+    waitFor: ['accuknox-container-scan']
+
+  # Step 5: Forward the logs to the SaaS platform using curl
+  - name: 'gcr.io/cloud-builders/curl'
+    entrypoint: 'bash'
+    args:
+      [
+        '-c',
+        'curl --location --request POST "https://${_CSPM_URL}/api/v1/artifact/?tenant_id=${_TENANT_ID}&data_type=TR&save_to_s3=false"  --header "Tenant-Id: 167" --header "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzIwNTg0NDgxLCJqdGkiOiJlOTMzZjBiMjRmOTE0ZDEwOGYzY2RlZGI4MGNmMGFmZCIsImlzcyI6ImNzcG0uZGVtby5hY2N1a25veC5jb20ifQ.aZW3andqtR8-mW_CgdzPDUu-Vow2whoOUjpyGxnfUVcfRfiJpkIlATlFDmPhOR3PHc6tJuxxfZBcyxiX4pXcFBMEAtFMUMK3bIA3oOftALuCxLW5W4DS6PzeOXjNZn9_ijadh8d6UJvw4JOAByXRcwu9XNSwICn-pb4BqfIvu7tL_sHRWMFKt4C5Mo97FNr48keXzOeWzy4TiqMCwTKBzwtJbBt3NrgvWoTZzpJx1ioWGnVcQRHphDL0xA6OmyZYw5qOEJ5y8yv5rDt0p5JUWD5EiemF8Pq-0_OXBZ0TU-a-4deBWMnwSqO-i2C7cxzA_d0hC1fRcVhJ7PFnALFXcA" --form "file=@/workspace/accuknox-report.json"'
+      ]
+    waitFor: ['accuknox-container-scan']
+    id: 'forward-result-to-accuknox-saas'
+
+  # Step 6: If there are critical or high vulnerabilities, stop deployment
+  - name: 'bash'
+    entrypoint: 'bash'
+    args:
+      [
+        '-c',
+        'if grep -q "CRITICAL\|HIGH" /workspace/accuknox-report.json; then echo "AccuKnox Scan has halted the deployment because it detected critical vulnerabilities"; exit 1; else exit 0; fi'
+      ]
+    waitFor: ['forward-result-to-accuknox-saas']
+
+# Step 7: Push the image to Google Container Registry with the latest tag if it's pass the scan criteria
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/shaped-infusion-402417/python-app']
+
+images: [
+   'gcr.io/shaped-infusion-402417/python-app:latest'
+]
+
+# Specify the logs bucket and build timeout
+logsBucket: 'gs://aditya-cicd-test'
+timeout: '1200s'
+
+# Define substitutions
+substitutions:
+  _IMAGE_URL: 'gcr.io/shaped-infusion-402417/python-app'
+  _IMAGE_TAG: 'latest'
+  _CSPM_URL: 'cspm.demo.accuknox.com'
+  _TENANT_ID: '167'
