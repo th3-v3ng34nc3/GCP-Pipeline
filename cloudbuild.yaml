@@ -1,15 +1,20 @@
 steps:
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/shaped-infusion-402417/python-app', '.']
+  # Step 1: Build the Docker Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build', 
+      '-t', 
+      'gcr.io/shaped-infusion-402417/python-app', 
+      '.'
+    ]
 
-
-# Step 2: Scan the container image with AccuKnox and save the report
+  # Step 2: Scan the container image with AccuKnox and save the report
   - name: 'accuknox/accuknox-container-scan'
     args: [
       'image', 
       '--format', 'json', 
       '--output', '/workspace/accuknox-report.json', 
-      '${_IMAGE_URL}:${_IMAGE_TAG}',
+      '${_IMAGE_URL}:${_IMAGE_TAG}'
     ]
     id: 'accuknox-container-scan'
 
@@ -45,12 +50,12 @@ steps:
       ]
     waitFor: ['forward-result-to-accuknox-saas']
 
-# Step 7: Push the image to Google Container Registry with the latest tag if it's pass the scan criteria
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'gcr.io/shaped-infusion-402417/python-app']
+  # Step 7: Push the image to Google Container Registry with the latest tag if it passes the scan criteria
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/shaped-infusion-402417/python-app']
 
 images: [
-   'gcr.io/shaped-infusion-402417/python-app:latest'
+  'gcr.io/shaped-infusion-402417/python-app:latest'
 ]
 
 # Specify the logs bucket and build timeout
